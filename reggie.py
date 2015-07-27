@@ -18,12 +18,11 @@ class ircbot(object):
 		self.port = port
 		self.nick = nick
 		self.pword = pword
-		self.email = None
 		self.code = None
 		self.ssl = ssl
 		self.apikey = None
-		self.mailname = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
-		self.mailname = self.mailname + "@reconmail.com"
+		self.email = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+		self.email = self.email + "@reconmail.com"
 
 
 		self.status = {
@@ -34,6 +33,47 @@ class ircbot(object):
 			"codegot": False
 
 		}
+	def get_sender(msg):
+		result = ""
+		for char in msg:
+			if char == "!":
+				break
+			if char != ":":
+				result += char
+		return result
+
+	def get_message(self, msg):
+		result = ""
+		i = 3
+		length = len(msg)
+		while i < length:
+			result += msg[i] + " "
+			i += 1
+		result = result.lstrip(':')
+		return result
+
+	def connect(self):
+		try:
+			self.irc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.irc.connect((self.server, self.port))
+			if self.ssl == True:
+				self.irc = ssl.wrap_socket(self.irc)
+
+			self.irc.send(bytes("USER " + self.nick +" "+ self.nick +" "+ self.nick  + " :Reggie!\r\n", "UTF-8"))
+
+			if self.changenick() == 0:
+				flag = 0
+				while flag == 0:
+					print("[-] Nickname Taken: " + self.nick)
+					newnick = input("Enter a new nickname (!quit to quit) > ")
+					flag = self.changenick()
+
+			self.irc.send(bytes("PRIVMSG nickserv :INOOPE\r\n", "UTF-8"))
+			print("[+] Connected to " + self.server + ":" + str(self.port))
+			self.status["connected"] = True
+
+		except Exception as e:
+			print("[-] Error connecting to server: " + str(e))
 
 	def getcode(self):
 		try:
@@ -46,38 +86,42 @@ class ircbot(object):
 
 			self.code = code
 		except Exception as e:
-			print("[-] Error Obtaining Verification Code. Check your API Key.")
-			print (str(e))
+			print("[-] Error Obtaining Verification Code: " + str(e))
 
 	def changenick(self):
-		irc.send(bytes("NICK " + self.nick + "\r\n", "UTF-8"))
+		self.irc.send(bytes("NICK " + self.nick + "\r\n", "UTF-8"))
 
 		start = time.clock()
 		while True:
-
-			ircmsg = irc.recv()
-			if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
-				self.pong(ircmsg)
-			elif ircmsg.find(bytes("Please choose a different", "UTF-8")) != -1:
-				return 0
-			elif time.clock() - start > 20:
-				return 1
-
+			try:
+				ircmsg = self.recv()
+				if ircmsg.find("PING :") != -1:
+					self.pong(ircmsg)
+				elif ircmsg.find("Please choose a different") != -1:
+					return 0
+				elif time.clock() - start > 20:
+					return 1
+			except Exception as e:
+				print("[-] Error changing nick: " + str(e))
 
 	def pong(self, msg):
 		try:
-				irc.send(bytes("PONG :" + msg.split()[1] + "\r\n", "UTF-8"))
-				print("[+] PONG")
+				self.irc.send(bytes("PONG :" + msg.split()[1] + "\r\n", "UTF-8"))
+				print("[+] PONG" + msg.split()[1])
 		except Exception as e:
-			print (str(e))
+			print("[-] Error during PONG: " + str(e))
 
 	def recv(self):
-		self.status["data"]= irc.recv(2048).strip("\r\n")
-		return self.status["data"]
+		self.status["data"] = (self.irc.recv(1024)).decode("UTF-8")
+		temp = str.split(self.status["data"], "\n")
+		self.status["data"] = temp.pop()
+
+
+		return ' '.join(temp)
 
 	def register(self):
 		try:
-			irc.send(bytes("PRIVMSG nickserv: register " + self.pword + self.email + "\r\n", "UTF-8"))
+			self.irc.send(bytes("PRIVMSG nickserv: register " + self.pword + self.email + "\r\n", "UTF-8"))
 			print("[+] Attempting Registration")
 			print("[+] Nick: " + self.nick)
 			print("[+] Password: " + self.pword)
@@ -85,22 +129,21 @@ class ircbot(object):
 			start = time.clock()
 			while True:
 				ircmsg = self.recv()
-				if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
+				if ircmsg.find("PING :") != -1:
 					self.pong(ircmsg)
-				elif ircmsg.find(bytes("is now registered to " + self.email, "UTF-8")) != -1:
+				elif ircmsg.find("is now registered to " + self.email) != -1:
 					return 1
-				elif ircmsg.find(bytes("GROUP", "UTF-8")) != -1:
+				elif ircmsg.find("GROUP") != -1:
 					return -1
 
 				elif time.clock() - start > 60:
 					return 0
 		except Exception as e:
-			print("[-] Error Sending Registration")
-			print (str(e))
+			print("[-] Error Sending Registration: " + str(e))
 
 	def verify(self):
 		try:
-			irc.send(bytes("PRIVMSG nickserv: verify register " + self.nick + self.code, "UTF-8"))
+			self.irc.send(bytes("PRIVMSG nickserv: verify register " + self.nick + self.code, "UTF-8"))
 			print("[+] Attempting Verification")
 			print("[+] Nick: " + self.nick)
 			print("[+] Code: " + self.code)
@@ -108,9 +151,9 @@ class ircbot(object):
 			start = time.clock()
 			while True:
 				ircmsg = self.recv()
-				if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
+				if ircmsg.find("PING :") != -1:
 					self.pong(ircmsg)
-				elif ircmsg.find(bytes("has now been verified.", "UTF-8")) != -1:
+				elif ircmsg.find("has now been verified.") != -1:
 					return 1
 				elif time.clock() - start > 20:
 					return 0
@@ -159,71 +202,61 @@ if __name__ == '__main__':
 
 
 	regbot = ircbot(opts.server, opts.port, opts.nick, opts.pword, opts.ssl, opts.key)
-	while regbot.status["connected"] == False:
-#		try:
-			irc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			irc.connect((regbot.server, regbot.port))
-			if regbot.ssl == True:
-				irc = ssl.wrap_socket(irc)
 
-			irc.send(bytes("USER " + regbot.nick +" "+ regbot.nick +" "+ regbot.nick  + " :Reggie!\r\n", "UTF-8"))
-			irc.send(bytes("JOIN " + regbot.nick + "\r\n", "UTF-8"))
-			if regbot.changenick() == 0:
-				flag = 0
-				while flag == 0:
-					print("[-] Nickname Taken: " + regbot.nick)
-					newnick = input("Enter a new nickname (!quit to quit) > ")
-					flag = regbot.changenick()
+	regbot.connect()
 
-			print("[+] Connected to " + regbot.server + ":" + str(regbot.port))
-			regbot.status["connected"] = True
-#		except Exception as  e:
-#			retry = input("[+] Error Connecting to " + regbot.server + ":" + str(regbot.port) + ". Retry? (Y/N) > ")
-#			while retry != "Y" and retry != "N":
-#				retry = input("Not a valid option. Retry? (Y/N) > ")
-#			if retry == "Y":
-#				continue
-#			elif retry == "N":
-#				exit(0)
+	if regbot.status["connected"] != False:
 
-	try:
+		
 		print("Waiting to be able to register... (This should take about 2 minutes)")
+		
 		start_time = time.clock()
 
 		while True:
 
-			if (time.clock() - start_time > 60) and (regbot.status["registered"] == False):
-				registration = regbot.register
-				if registration == 1:
-					print("[+] Registration Successful")
-					regbot.status["registered"] = True
-				elif registration == 0:
-					print("[-] Registration Request Timed Out")
-					exit(0)
-				elif registration == -1:
-					print("[-] Disconnect for a few minutes and try again.")
-					exit(0)
-			elif (regbot.status["codegot"] == False) and (regbot.status["registered"] == True):
-				regbot.getcode()
-				print("[+] Code Received: " + regbot.code)
-				regbot.status["codegot"] = True
-			elif (regbot.status["verified"] == False) and (regbot.code != None):
-				verification = regbot.verify()
-				if verification == 1:
-					print("[+] Verification Successful")
-					regbot.status["verified"] = True
-				elif verification == 0:
-					print("[-] Verification Request Timed Out")
-					print("[!] If Verification Code is not Blank, Try Verifying Manually")
-					exit(0)
+			try:
+				ircmsg = regbot.recv().split()
+
+				for line in ircmsg:
+					line = str.rstrip(line)
+					line = str.split(line)
+
+					if line[0] == "PING":
+						regbot.pong(line[1])
+					if line[1] == "PRIVMSG":
+						sender = get_sender(line[0])
+						message = get_message(line)
+						print(sender + ": " + message)
+
+				if (time.clock() - start_time > 60) and (regbot.status["registered"] == False):
+					print("[+] Starting Registration Process: " + str(time.clock()- start_time))
+					registration = regbot.register()
+					if registration == 1:
+						print("[+] Registration Successful")
+						regbot.status["registered"] = True
+					elif registration == 0:
+						print("[-] Registration Request Timed Out")
+						exit(-1)
+					elif registration == -1:
+						print("[-] Disconnect for a few minutes and try again.")
+						exit(-1)
+				elif (regbot.status["codegot"] == False) and (regbot.status["registered"] == True):
+					regbot.getcode()
+					print("[+] Code Received: " + regbot.code)
+					regbot.status["codegot"] = True
+				elif (regbot.status["verified"] == False) and (regbot.code != None):
+					verification = regbot.verify()
+					if verification == 1:
+						print("[+] Verification Successful")
+						regbot.status["verified"] = True
+					elif verification == 0:
+						print("[-] Verification Request Timed Out")
+						print("[!] If Verification Code is not Blank, Try Verifying Manually")
+						exit(0)
 
 
+				
 
-			ircmsg = regbot.recv()
-			print(ircmsg)
-			if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
-				regbot.pong(ircmsg)
-	except Exception as e:
-		print("[-] Error while looping.")
-		print (str(e))
+			except Exception as e:
+				print("[-] Error while looping: " + str(e))
 
