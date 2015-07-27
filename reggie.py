@@ -4,6 +4,8 @@ import socket
 import optparse
 import ssl
 import time
+import random
+import string
 from pymailinator.wrapper import Inbox
 
 
@@ -21,17 +23,19 @@ class ircbot(object):
 		self.ssl = ssl
 		self.apikey = None
 		self.mailname = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+		self.mailname = self.mailname + "@reconmail.com"
 
 
 		self.status = {
 			"data": None,
 			"registered": False,
-			"connected": False
-			"verified": False
+			"connected": False,
+			"verified": False,
+			"codegot": False
 
 		}
 
-	def self.getcode():
+	def getcode(self):
 		try:
 			inbox = Inbox(self.apikey)
 			inbox.get(self.mailname)
@@ -41,38 +45,39 @@ class ircbot(object):
 			code = text[1].split()[0]
 
 			self.code = code
-		except:
+		except Exception as e:
 			print("[-] Error Obtaining Verification Code. Check your API Key.")
+			print (str(e))
 
-	def self.changenick(self):
-		irc.send("NICK " + self.nick + "\n\r")
+	def changenick(self):
+		irc.send(bytes("NICK " + self.nick + "\r\n", "UTF-8"))
 
 		start = time.clock()
 		while True:
 
 			ircmsg = irc.recv()
-			if ircmsg.find("PING :") != -1:
+			if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
 				self.pong(ircmsg)
-			elif ircmsg.find("Please choose a different") != -1:
+			elif ircmsg.find(bytes("Please choose a different", "UTF-8")) != -1:
 				return 0
 			elif time.clock() - start > 20:
 				return 1
 
 
-	def self.pong(self, msg):
+	def pong(self, msg):
 		try:
-				irc.send("PONG :" + msg.split()[1] + "\n\r")
+				irc.send(bytes("PONG :" + msg.split()[1] + "\r\n", "UTF-8"))
 				print("[+] PONG")
-		except:
-			print("[-] Exception during PONG")
+		except Exception as e:
+			print (str(e))
 
-	def self.recv(self):
-		self.status["data"]= irc.recv(2048).strip("\n\r")
+	def recv(self):
+		self.status["data"]= irc.recv(2048).strip("\r\n")
 		return self.status["data"]
 
-	def self.register(self):
+	def register(self):
 		try:
-			irc.send("PRIVMSG nickserv: register " + self.pword + self.email + "\n\r")
+			irc.send(bytes("PRIVMSG nickserv: register " + self.pword + self.email + "\r\n", "UTF-8"))
 			print("[+] Attempting Registration")
 			print("[+] Nick: " + self.nick)
 			print("[+] Password: " + self.pword)
@@ -80,21 +85,22 @@ class ircbot(object):
 			start = time.clock()
 			while True:
 				ircmsg = self.recv()
-				if ircmsg.find("PING :") != -1:
+				if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
 					self.pong(ircmsg)
-				elif ircmsg.find("is now registered to " + self.email) != -1:
+				elif ircmsg.find(bytes("is now registered to " + self.email, "UTF-8")) != -1:
 					return 1
-				elif ircmsg.find("GROUP") != -1:
+				elif ircmsg.find(bytes("GROUP", "UTF-8")) != -1:
 					return -1
 
 				elif time.clock() - start > 60:
 					return 0
-		except:
+		except Exception as e:
 			print("[-] Error Sending Registration")
+			print (str(e))
 
-	def self.verify(self):
+	def verify(self):
 		try:
-			irc.send("PRIVMSG nickserv: verify register " + self.nick + self.code)
+			irc.send(bytes("PRIVMSG nickserv: verify register " + self.nick + self.code, "UTF-8"))
 			print("[+] Attempting Verification")
 			print("[+] Nick: " + self.nick)
 			print("[+] Code: " + self.code)
@@ -102,23 +108,24 @@ class ircbot(object):
 			start = time.clock()
 			while True:
 				ircmsg = self.recv()
-				if ircmsg.find("PING :") != -1:
+				if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
 					self.pong(ircmsg)
-				elif ircmsg.find("has now been verified.") != -1:
+				elif ircmsg.find(bytes("has now been verified.", "UTF-8")) != -1:
 					return 1
 				elif time.clock() - start > 20:
 					return 0
+		except Exception as e:
 			print("[-] Error Sending Verification")
+			print (str(e))
 
-def main():
-
+if __name__ == '__main__':
 	parser = optparse.OptionParser()
 	parser.add_option("-s", "--server", help="Server to register your nick.", dest="server", action="store")
 	parser.add_option("-p", "--port", help="Port on the server to connect through (usually 6667 or 6697 for SSL).", dest="port", action="store", type="int")
 	parser.add_option("-n", "--nick", help="The nickname to register.", dest="nick", action="store")
-	parser.add_option("-pw", "--password", help="Password with which to register the nickname.", dest="pword", action="store")
+	parser.add_option("-w", "--password", help="Password with which to register the nickname.", dest="pword", action="store")
 	#parser.add_option("-e", "--email", help="Email to send verification code.", dest="email")
-	parser.add_option("-ssl", "--secure", help="Set if server uses SSL encryption.", dest="ssl", default=False, action="store_true")
+	parser.add_option("-e", "--secure", help="Set if server uses SSL encryption.", dest="ssl", default=False, action="store_true")
 	parser.add_option("-k", "--key", help="Your mailinator API key.", dest="key", action="store")
 
 	(opts, args) = parser.parse_args()
@@ -141,40 +148,43 @@ def main():
 	    exit(-1)
 
 	if opts.port is None:
-		if opt.ssl == True:
-			opt.port = 6697
+		if opts.ssl == True:
+			opts.port = 6697
 		else:
-			opt.port = 6667
-	    print("No port specified. Defaulting to %d \n", % opt.port)
+			opts.port = 6667
+	    
+		print("No port specified. Defaulting to %d \n" % opts.port)
 
 
 
 
-	regbot = ircbot(opt.server, opt.port, opt.nick, opt.pword, opt.ssl, opt.key)
+	regbot = ircbot(opts.server, opts.port, opts.nick, opts.pword, opts.ssl, opts.key)
 	while regbot.status["connected"] == False:
-		try:
+#		try:
 			irc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			irc.connect((regbot.server, regbot.port))
 			if regbot.ssl == True:
 				irc = ssl.wrap_socket(irc)
 
-			irc.send("USER "+ regbot.nick +" "+ regbot.nick +" "+ regbot.nick +" :Reggie!\n\r")
+			irc.send(bytes("USER " + regbot.nick +" "+ regbot.nick +" "+ regbot.nick  + " :Reggie!\r\n", "UTF-8"))
+			irc.send(bytes("JOIN " + regbot.nick + "\r\n", "UTF-8"))
 			if regbot.changenick() == 0:
-				while regbot.changenick() == 0:
+				flag = 0
+				while flag == 0:
 					print("[-] Nickname Taken: " + regbot.nick)
 					newnick = input("Enter a new nickname (!quit to quit) > ")
-					regbot.changenick()
+					flag = regbot.changenick()
 
-			print("[+] Connected to " + regbot.server + ":" + regbot.port)
+			print("[+] Connected to " + regbot.server + ":" + str(regbot.port))
 			regbot.status["connected"] = True
-		except:
-			retry = input("[+] Error Connecting to " + regbot.server + ":" + regbot.port ". Retry? (Y/N) > ")
-			while retry != "Y" and retry != "N":
-				retry = input("Not a valid option. Retry? (Y/N) > ")
-			if retry == "Y":
-				continue
-			elif retry == "N":
-				exit(0)
+#		except Exception as  e:
+#			retry = input("[+] Error Connecting to " + regbot.server + ":" + str(regbot.port) + ". Retry? (Y/N) > ")
+#			while retry != "Y" and retry != "N":
+#				retry = input("Not a valid option. Retry? (Y/N) > ")
+#			if retry == "Y":
+#				continue
+#			elif retry == "N":
+#				exit(0)
 
 	try:
 		print("Waiting to be able to register... (This should take about 2 minutes)")
@@ -193,9 +203,10 @@ def main():
 				elif registration == -1:
 					print("[-] Disconnect for a few minutes and try again.")
 					exit(0)
-			elif (regbot.status["codegot"] == False):
+			elif (regbot.status["codegot"] == False) and (regbot.status["registered"] == True):
 				regbot.getcode()
 				print("[+] Code Received: " + regbot.code)
+				regbot.status["codegot"] = True
 			elif (regbot.status["verified"] == False) and (regbot.code != None):
 				verification = regbot.verify()
 				if verification == 1:
@@ -209,13 +220,10 @@ def main():
 
 
 			ircmsg = regbot.recv()
-			if ircmsg.find("PING :") != -1:
+			print(ircmsg)
+			if ircmsg.find(bytes("PING :", "UTF-8")) != -1:
 				regbot.pong(ircmsg)
-
-
-
-if __name__ == '__main__':
-	main()
-
-
+	except Exception as e:
+		print("[-] Error while looping.")
+		print (str(e))
 
